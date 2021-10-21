@@ -72,6 +72,19 @@ public fun KtAnnotated.requireAnnotation(
 }
 
 @ExperimentalAnvilApi
+public fun KtAnnotated.requireAnnotations(
+  fqName: FqName,
+  module: ModuleDescriptor
+): List<KtAnnotationEntry> {
+  return findAnnotations(fqName, module)
+    .takeIf { it.isNotEmpty() }
+    ?: throw AnvilCompilationException(
+      element = this,
+      message = "Couldn't find the annotation $fqName."
+    )
+}
+
+@ExperimentalAnvilApi
 public fun KtAnnotated.findAnnotation(
   fqName: FqName,
   module: ModuleDescriptor
@@ -128,6 +141,69 @@ public fun KtAnnotated.findAnnotation(
 }
 
 @ExperimentalAnvilApi
+public fun KtAnnotated.findAnnotations(
+  fqName: FqName,
+  module: ModuleDescriptor
+): List<KtAnnotationEntry> {
+  val annotationEntries = annotationEntries
+  if (annotationEntries.isEmpty()) return emptyList()
+
+  // Look first if it's a Kotlin annotation. These annotations are usually not imported and the
+  // remaining checks would fail.
+  if (fqName in kotlinAnnotations) {
+    annotationEntries
+      .filter { annotation ->
+        val text = annotation.text
+        text.startsWith("@${fqName.shortName()}") || text.startsWith("@$fqName")
+      }
+      .takeIf { it.isNotEmpty() }
+      ?.let { return it }
+  }
+
+  // TODO: solve
+  // Check if the fully qualified name is used, e.g. `@dagger.Module`.
+  // val annotationEntry = annotationEntries
+  //   .filter {
+  //     it.text.startsWith("@${fqName.asString()}")
+  //   }
+  // if (annotationEntry != null) return annotationEntry
+
+  // Check if the simple name is used, e.g. `@Module`.
+  val annotationEntries2 = annotationEntries
+    .filter {
+      it.shortName == fqName.shortName()
+    }
+    .takeIf { it.isNotEmpty() }
+    ?: return emptyList()
+
+  val importPaths = containingKtFile.importDirectives.mapNotNull { it.importPath }
+
+  // If the simple name is used, check that the annotation is imported.
+  val hasImport = importPaths.any { it.fqName == fqName }
+  if (hasImport) return annotationEntries2
+
+  // Look for star imports and make a guess.
+  val hasStarImport = importPaths
+    .filter { it.isAllUnder }
+    .any {
+      fqName.asString().startsWith(it.fqName.asString())
+    }
+  if (hasStarImport) return annotationEntries2
+
+  // TODO: help
+  // At this point we know that the class is annotated with an annotation that has the same simple
+  // name as fqName. We couldn't find any imports, so the annotation is likely part of the same
+  // package or Kotlin namespace. Leverage our existing utility function and to find the FqName
+  // and then compare the result.
+  // val fqNameOfShort = annotationEntryShort.fqNameOrNull(module)
+  // if (fqName == fqNameOfShort) {
+  //   return annotationEntryShort
+  // }
+
+  return emptyList()
+}
+
+@ExperimentalAnvilApi
 public fun KtClassOrObject.scope(
   annotationFqName: FqName,
   module: ModuleDescriptor
@@ -143,6 +219,37 @@ public fun KtClassOrObject.scope(
       }
 
       classLiteralExpression.requireFqName(module)
+    }
+}
+
+@ExperimentalAnvilApi
+public fun KtClassOrObject.scopes(
+  annotationFqName: FqName,
+  module: ModuleDescriptor
+): List<FqName> {
+  return requireAnnotations(annotationFqName, module)
+    .map {
+      val classLiteralExpression =
+        it.findAnnotationArgument<KtClassLiteralExpression>(name = "scope", index = 0)
+          ?: throw AnvilCompilationException(
+            "Couldn't find scope for $annotationFqName.",
+            element = this
+          )
+
+      classLiteralExpression.requireFqName(module)
+    }
+    .also { scopes ->
+      val duplicates: Map<FqName, List<FqName>> = scopes.groupBy { it }
+        .filterValues { it.size > 1 }
+
+      if (duplicates.isNotEmpty()) {
+        throw AnvilCompilationException(
+          "${requireFqName()} contributes multiple times to the same scope: " +
+            "${duplicates.keys.joinToString()}. Contributing multiple times to the same scope " +
+            "is forbidden and all scopes must be distinct.",
+          element = this
+        )
+      }
     }
 }
 

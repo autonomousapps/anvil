@@ -7,6 +7,7 @@ import com.squareup.anvil.compiler.contributingInterface
 import com.squareup.anvil.compiler.daggerModule1
 import com.squareup.anvil.compiler.hintContributes
 import com.squareup.anvil.compiler.hintContributesScope
+import com.squareup.anvil.compiler.hintContributesScopes
 import com.squareup.anvil.compiler.innerInterface
 import com.squareup.anvil.compiler.innerModule
 import com.tschuchort.compiletesting.KotlinCompilation.ExitCode.COMPILATION_ERROR
@@ -58,6 +59,65 @@ class ContributesToGeneratorTest {
     ) {
       assertThat(daggerModule1.hintContributes?.java).isEqualTo(daggerModule1)
       assertThat(daggerModule1.hintContributesScope).isEqualTo(Any::class)
+    }
+  }
+
+  @Test fun `there are multiple hints for contributed Dagger modules`() {
+    compile(
+      """
+      package com.squareup.test
+
+      import com.squareup.anvil.annotations.ContributesTo
+
+      @ContributesTo(Any::class)
+      @ContributesTo(Unit::class)
+      @dagger.Module
+      abstract class DaggerModule1
+      """
+    ) {
+      assertThat(daggerModule1.hintContributes?.java).isEqualTo(daggerModule1)
+      assertThat(daggerModule1.hintContributesScopes).containsExactly(Any::class, Unit::class)
+    }
+  }
+
+  @Test fun `there are multiple hints for contributed Dagger modules with fully qualified names`() {
+    compile(
+      """
+      package com.squareup.test
+
+      import com.squareup.anvil.annotations.ContributesTo
+
+      @ContributesTo(Any::class)
+      @com.squareup.anvil.annotations.ContributesTo(Unit::class)
+      @dagger.Module
+      abstract class DaggerModule1
+      """
+    ) {
+      assertThat(daggerModule1.hintContributes?.java).isEqualTo(daggerModule1)
+      assertThat(daggerModule1.hintContributesScopes).containsExactly(Any::class, Unit::class)
+    }
+  }
+
+  @Test fun `multiple annotations with the same scope aren't allowed`() {
+    compile(
+      """
+      package com.squareup.test
+
+      import com.squareup.anvil.annotations.ContributesTo
+
+      @ContributesTo(Any::class)
+      @ContributesTo(Any::class, replaces = [Int::class])
+      @ContributesTo(Unit::class)
+      @ContributesTo(Unit::class, replaces = [Int::class])
+      @dagger.Module
+      abstract class DaggerModule1
+      """
+    ) {
+      assertThat(exitCode).isEqualTo(COMPILATION_ERROR)
+      assertThat(messages).contains(
+        "com.squareup.test.DaggerModule1 contributes multiple times to the same scope: " +
+          "kotlin.Any, kotlin.Unit."
+      )
     }
   }
 

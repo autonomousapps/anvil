@@ -90,6 +90,9 @@ internal val Class<*>.hintContributes: KClass<*>?
 internal val Class<*>.hintContributesScope: KClass<*>?
   get() = getHintScope(HINT_CONTRIBUTES_PACKAGE_PREFIX)
 
+internal val Class<*>.hintContributesScopes: List<KClass<*>>
+  get() = getHintScopes(HINT_CONTRIBUTES_PACKAGE_PREFIX)
+
 internal val Class<*>.hintBinding: KClass<*>?
   get() = getHint(HINT_BINDING_PACKAGE_PREFIX)
 
@@ -113,6 +116,14 @@ private fun Class<*>.getHintScope(prefix: String): KClass<*>? =
     ?.filter { it.java != this }
     ?.also { assertThat(it.size).isEqualTo(1) }
     ?.first()
+
+private fun Class<*>.getHintScopes(prefix: String): List<KClass<*>> =
+  contributedProperties(prefix)
+    ?.also { assertThat(it.size).isAtLeast(2) }
+    ?.filter { it.java != this }
+    ?: emptyList()
+    // ?.also { assertThat(it.size).isEqualTo(1) }
+    // ?.first()
 
 private fun Class<*>.contributedProperties(packagePrefix: String): List<KClass<*>>? {
   // The capitalize() doesn't make sense, I don't know where this is coming from. Maybe it's a
